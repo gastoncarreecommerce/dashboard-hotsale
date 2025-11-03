@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HotSale Dashboard (hora a hora)</title>
+
+  <!-- Chart.js (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <!-- PapaParse (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <style>
+    :root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#111; --muted:#666; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#0b0b0c; --card:#131416; --text:#f8f8f8; --muted:#aaa; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    h1 { font-size: 22px; margin: 0 0 16px; }
+    .grid { display: grid; gap: 16px; }
+    .g-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    .g-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .card { background: var(--card); border-radius: 16px; padding: 16px; box-shadow: 0 2px 10px rgba(0,0,0,.06); }
+    .kpi-label { font-size: 12px; color: var(--muted); }
+    .kpi-value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    input[type="text"] { width: 100%; padding: 8px 10px; background: transparent; color: var(--text);
+      border: 1px solid rgba(127,127,127,.35); border-radius: 10px; }
+    .label { width: 150px; font-size: 12px; color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    td, th { padding: 8px 0; border-top: 1px solid rgba(127,127,127,.25); }
+    th { text-align: left; color: var(--muted); font-weight: 600; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+    .chip { border: 1px solid rgba(127,127,127,.35); padding: 6px 10px; border-radius: 999px; font-size: 12px; cursor: pointer; }
+    .chip.active { background: #111; color: #fff; border-color: #111; }
+    canvas { width: 100% !important; height: 340px !important; }
+    .small { font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>HotSale Dashboard (hora a hora)</h1>
+
+    <div class="grid g-3">
+      <div class="card">
+        <div class="kpi-label">GMV total</div>
+        <div id="kpi-gmv" class="kpi-value">$ —</div>
+      </div>
+      <div class="card">
+        <div class="kpi-label">Pedidos únicos</div>
+        <div id="kpi-orders" class="kpi-value">—</div>
+      </div>
+      <div class="card">
+        <div class="kpi-label">Ticket promedio</div>
+        <div id="kpi-ticket" class="kpi-value">$ —</div>
+      </div>
+    </div>
+
+    <div class="grid g-2" style="margin-top:16px">
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:8px">GMV por hora</div>
+        <canvas id="chartGMV"></canvas>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:8px">Pedidos por hora</div>
+        <canvas id="chartOrders"></canvas>
+      </div>
+    </div>
+
+    <div class="grid g-2" style="margin-top:16px">
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:8px">Subí tu CSV</div>
+        <input id="file" type="file" accept=".csv" />
+        <div class="small" style="margin-top:8px">
+          Espera delimitador “;” y al menos estas columnas: <code>Creation Date</code>, <code>Order</code>, <code>SKU Total Price</code>.
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:8px">Mapeo de columnas</div>
+        <div class="row"><div class="label">dateTime</div><input id="map-date" type="text" value="Creation Date"></div>
+        <div class="row"><div class="label">orderId</div><input id="map-order" type="text" value="Order"></div>
+        <div class="row"><div class="label">amount</div><input id="map-amount" type="text" value="SKU Total Price"></div>
+        <div class="row"><div class="label">origin (opcional)</div><input id="map-origin" type="text" value="Origin"></div>
+        <div class="row"><div class="label">state (opcional)</div><input id="map-state" type="text" value="UF"></div>
+        <div class="row"><div class="label">city (opcional)</div><input id="map-city" type="text" value="City"></div>
+        <div class="small" style="margin-top:6px">Tip: si tus nombres reales son distintos, editá arriba y se recalcula.</div>
+      </div>
+    </div>
+
+    <div class="grid g-3" style="margin-top:16px">
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:8px">Filtro: Origen</div>
+        <div id="chips-origin" class="chips"></div>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:8px">Filtro: Provincia/UF</div>
+        <div id="chips-state" class="chips"></div>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:8px">Filtro: Ciudad</div>
+        <div id="chips-city" class="chips"></div>
+      </div>
+    </div>
+
+    <div class="grid g-2" style="margin-top:16px">
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:8px">Top 10 por Categoría (si existe)</div>
+        <table id="table-cats"><thead><tr><th>Nombre</th><th style="text-align:right">GMV</th></tr></thead><tbody></tbody></table>
+        <div class="small">Para usarlo, cambiá el campo “category” en el código si tu CSV lo trae con otro nombre.</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:8px">Top 10 por Marca (si existe)</div>
+        <table id="table-brands"><thead><tr><th>Nombre</th><th style="text-align:right">GMV</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+
+    <p class="muted" style="margin-top:16px">Zona horaria fija: America/Argentina/Buenos_Aires. Todo corre 100% en tu navegador.</p>
+  </div>
+
+  <script>
+    // ------- Utilidades -------
+    const TZ = "America/Argentina/Buenos_Aires";
+
+    const fmtARS = (n) => n.toLocaleString("es-AR", { maximumFractionDigits: 0 });
+    const normalizeNumber = (x) => {
+      if (typeof x === "number") return x;
+      if (x == null) return 0;
+      const s = String(x).trim().replace(/\./g, "").replace(",", ".");
+      const n = Number(s);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    // Obtiene clave "YYYY-MM-DD HH:00" en TZ AR para agrupar por hora
+    function hourKey(dateStr) {
+      if (!dateStr) return null;
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false
+      }).formatToParts(new Date(dateStr));
+      const obj = Object.fromEntries(parts.map(p => [p.type, p.value]));
+      if (!obj.year || !obj.month || !obj.day || !obj.hour) return null;
+      return `${obj.year}-${obj.month}-${obj.day} ${obj.hour}:00`;
+    }
+
+    function aggregateHourly(rows, map, filters) {
+      const byHour = new Map(); // key -> { gmv, orders:Set }
+      const pass = (r) => {
+        if (filters.origin.size && !filters.origin.has(String(r[map.origin] ?? ""))) return false;
+        if (filters.state.size  && !filters.state.has(String(r[map.state] ?? "")))  return false;
+        if (filters.city.size   && !filters.city.has(String(r[map.city] ?? "")))    return false;
+        return true;
+      };
+
+      rows.forEach(r => {
+        if (!pass(r)) return;
+        const key = hourKey(r[map.dateTime]);
+        if (!key) return;
+        const amount = normalizeNumber(r[map.amount]);
+        const orderId = String(r[map.orderId] ?? "").trim();
+        if (!byHour.has(key)) byHour.set(key, { gmv: 0, orders: new Set() });
+        const cell = byHour.get(key);
+        cell.gmv += amount;
+        if (orderId) cell.orders.add(orderId);
+      });
+
+      const series = Array.from(byHour.entries())
+        .sort((a,b) => a[0].localeCompare(b[0]))
+        .map(([hour, v]) => ({ hour, gmv: Math.round(v.gmv), orders: v.orders.size }));
+      return series;
+    }
+
+    function topBy(rows, field, amountField) {
+      if (!field) return [];
+      const totals = new Map();
+      rows.forEach(r => {
+        const k = String(r[field] ?? "—");
+        const v = normalizeNumber(r[amountField]);
+        totals.set(k, (totals.get(k) ?? 0) + v);
+      });
+      return Array.from(totals.entries())
+        .sort((a,b)=> b[1]-a[1])
+        .slice(0,10)
+        .map(([name, gmv]) => ({ name, gmv: Math.round(gmv) }));
+    }
+
+    function uniqueValues(rows, field) {
+      if (!field) return [];
+      const s = new Set();
+      rows.forEach(r => { const v = String(r[field] ?? ""); if (v) s.add(v); });
+      return Array.from(s).sort();
+    }
+
+    // ------- Estado simple -------
+    let RAW_ROWS = [];
+    const MAP = {
+      dateTime: "Creation Date",
+      orderId: "Order",
+      amount: "SKU Total Price",
+      origin: "Origin",
+      state: "UF",
+      city: "City",
+      category: "Category Name",
+      brand: "Brand Name",
+    };
+    const FILTERS = { origin: new Set(), state: new Set(), city: new Set() };
+
+    // ------- Gráficos -------
+    let chartGMV, chartOrders;
+    function ensureCharts(labels = [], gmv = [], orders = []) {
+      const ctx1 = document.getElementById("chartGMV");
+      const ctx2 = document.getElementById("chartOrders");
+
+      const data1 = { labels, datasets: [{ label: "GMV", data: gmv, tension: .25, fill: false }]};
+      const data2 = { labels, datasets: [{ label: "Pedidos", data: orders }]};
+
+      if (chartGMV) chartGMV.destroy();
+      if (chartOrders) chartOrders.destroy();
+
+      chartGMV = new Chart(ctx1, { type: "line", data: data1, options: { responsive: true, maintainAspectRatio: false }});
+      chartOrders = new Chart(ctx2, { type: "bar", data: data2, options: { responsive: true, maintainAspectRatio: false, scales:{ y:{ ticks:{ precision:0 }}} }});
+    }
+
+    // ------- Render -------
+    function renderAll() {
+      const hourly = aggregateHourly(RAW_ROWS, MAP, FILTERS);
+      const labels = hourly.map(d => d.hour);
+      const gmv = hourly.map(d => d.gmv);
+      const orders = hourly.map(d => d.orders);
+
+      // KPIs
+      const totalGMV = gmv.reduce((a,b)=>a+b,0);
+      const totalOrders = new Set(); // pedidos únicos (true únicos se podría calcular por dataset completo)
+      RAW_ROWS.forEach(r => { const id = String(r[MAP.orderId] ?? "").trim(); if (id) totalOrders.add(id); });
+      const ticket = totalOrders.size ? Math.round(totalGMV / totalOrders.size) : 0;
+
+      document.getElementById("kpi-gmv").textContent = "$ " + fmtARS(totalGMV);
+      document.getElementById("kpi-orders").textContent = String(totalOrders.size);
+      document.getElementById("kpi-ticket").textContent = "$ " + fmtARS(ticket);
+
+      ensureCharts(labels, gmv, orders);
+
+      // Chips de filtros
+      fillChips("chips-origin", uniqueValues(RAW_ROWS, MAP.origin), FILTERS.origin);
+      fillChips("chips-state",  uniqueValues(RAW_ROWS, MAP.state),  FILTERS.state);
+      fillChips("chips-city",   uniqueValues(RAW_ROWS, MAP.city),   FILTERS.city);
+
+      // Tablas Top (si existen campos)
+      fillTable("table-cats", topBy(RAW_ROWS, MAP.category, MAP.amount));
+      fillTable("table-brands", topBy(RAW_ROWS, MAP.brand, MAP.amount));
+    }
+
+    function fillChips(elId, values, setRef) {
+      const el = document.getElementById(elId);
+      el.innerHTML = "";
+      values.forEach(v => {
+        const b = document.createElement("button");
+        b.className = "chip" + (setRef.has(v) ? " active" : "");
+        b.textContent = v;
+        b.onclick = () => { setRef.has(v) ? setRef.delete(v) : setRef.add(v); renderAll(); };
+        el.appendChild(b);
+      });
+    }
+
+    function fillTable(tableId, rows) {
+      const tbody = document.querySelector(`#${tableId} tbody`);
+      tbody.innerHTML = "";
+      rows.forEach(r => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${r.name}</td><td style="text-align:right">$ ${fmtARS(r.gmv)}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // ------- Eventos -------
+    document.getElementById("file").addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      Papa.parse(file, {
+        header: true,
+        delimiter: ";",
+        skipEmptyLines: true,
+        dynamicTyping: true,
+        complete: (res) => { RAW_ROWS = res.data; renderAll(); },
+        error: (err) => alert("Error leyendo CSV: " + err)
+      });
+    });
+
+    // inputs de mapeo
+    const bindMap = (id, key) => {
+      const el = document.getElementById(id);
+      el.addEventListener("input", () => { MAP[key] = el.value; renderAll(); });
+    };
+    bindMap("map-date","dateTime");
+    bindMap("map-order","orderId");
+    bindMap("map-amount","amount");
+    bindMap("map-origin","origin");
+    bindMap("map-state","state");
+    bindMap("map-city","city");
+
+    // Primer render vacío
+    ensureCharts([], [], []);
+  </script>
+</body>
+</html>
