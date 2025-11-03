@@ -16,9 +16,9 @@
     h1 { margin: 0 0 12px; font-size: 22px; }
     .bar { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
     label { font-size:13px; color:var(--muted); }
-    select, input[type="number"] {
+    select {
       background: var(--card); border: 1px solid #333; color: var(--text);
-      padding: 6px 10px; border-radius: 8px; min-width:120px;
+      padding: 6px 10px; border-radius: 8px; min-width:140px;
     }
     .grid { display:grid; gap:16px; }
     .g-2 { grid-template-columns: 1fr 1fr; }
@@ -38,16 +38,12 @@
 
     <div class="bar">
       <div>
-        <label for="day-select">Día:</label><br>
+        <label for="day-select">Día (según Creation Date):</label><br>
         <select id="day-select"><option value="">—</option></select>
       </div>
-      <div>
-        <label for="offset-hours">Ajuste horario (en horas):</label><br>
-        <input id="offset-hours" type="number" value="0" step="1">
-      </div>
       <div class="muted">
-        Los datos se ajustan automáticamente a la hora argentina (UTC−3).  
-        Usá el offset si tu corte de día difiere (ej. cierre a las 6 AM).
+        Los días se toman **tal cual vienen en la columna <code>Creation Date</code>** (solo la parte de fecha).  
+        Sin conversiones de zona horaria ni ajustes automáticos.
       </div>
     </div>
 
@@ -71,50 +67,46 @@
         <tbody></tbody>
       </table>
       <div class="muted" style="margin-top:6px">
-        Cada pedido se cuenta una sola vez (deduplicado por ID).  
-        Timestamps convertidos de UTC → Hora Argentina (UTC−3).
+        Cada pedido se cuenta una sola vez (deduplicado por ID normalizado).  
+        Día = primeros 10 caracteres de <code>Creation Date</code> (YYYY-MM-DD).  
+        Hora = caracteres 11–12 de <code>Creation Date</code> (HH).
       </div>
     </div>
   </div>
 
   <script>
+    // CONFIG
     const MAP = { dateTime: "Creation Date", orderId: "Order" };
-    let RAW_ROWS = [];
-    let DAYS = {};
-    let ORDER_MAP = new Map();
-    let offsetHours = 0;
 
-    const cleanId = id => (id ?? "")
+    // ESTADO
+    let RAW_ROWS = [];
+    let ORDER_MAP = new Map(); // id limpio -> string fecha cruda
+    let DAYS = {};             // día -> hora -> Set(orderIds)
+    let chartAccum, chartDelta;
+
+    // Normaliza el ID de pedido para dedupe (ej: saca sufijos "-01")
+    const cleanId = (id) => (id ?? "")
       .toString()
       .trim()
-      .replace(/-0*1$/, "")
-      .replace(/\s+/g, "");
+      .replace(/-0*1$/, "")   // 123-01 -> 123
+      .replace(/\s+/g, "");   // sin espacios
 
-    // ✅ Parse UTC → hora Argentina (UTC−3) + offset manual
-    const applyOffset = (raw) => {
+    // Toma "2025-05-12 23:57:10Z" → "2025-05-12"
+    const getDayFromRaw = (raw) => {
       if (!raw) return null;
-      const d = new Date(raw);
-      if (isNaN(d)) return null;
-      const local = new Date(d.getTime() - 3 * 60 * 60 * 1000);
-      return new Date(local.getTime() + offsetHours * 60 * 60 * 1000);
+      const s = raw.toString().trim();
+      return s.slice(0, 10); // YYYY-MM-DD
     };
 
-    const dateKey = (d) => {
-      const parts = new Intl.DateTimeFormat("en-CA", {
-        timeZone: "America/Argentina/Buenos_Aires",
-        year:"numeric", month:"2-digit", day:"2-digit"
-      }).formatToParts(d);
-      const o = Object.fromEntries(parts.map(p => [p.type, p.value]));
-      return `${o.year}-${o.month}-${o.day}`;
-    };
-
-    const hourKey = (d) => {
-      const parts = new Intl.DateTimeFormat("en-CA", {
-        timeZone: "America/Argentina/Buenos_Aires",
-        hour:"2-digit", hour12:false
-      }).formatToParts(d);
-      const o = Object.fromEntries(parts.map(p => [p.type, p.value]));
-      return o.hour;
+    // Toma "2025-05-12 23:57:10Z" → "23"
+    const getHourFromRaw = (raw) => {
+      if (!raw) return null;
+      const s = raw.toString().trim();
+      // busca primero la parte de hora con regex
+      const m = s.match(/(\d{2}):\d{2}:\d{2}/);
+      if (m) return m[1]; // HH
+      // fallback: posición fija
+      return s.slice(11, 13);
     };
 
     const toDM = (iso) => {
@@ -122,7 +114,7 @@
       return `${d}/${m}`;
     };
 
-    // Carga CSV automáticamente
+    // CARGA INICIAL DEL CSV
     window.addEventListener("DOMContentLoaded", () => {
       Papa.parse("/data/hotsale.csv", {
         download: true,
@@ -131,50 +123,54 @@
         skipEmptyLines: true,
         complete: (res) => {
           RAW_ROWS = res.data;
-          rebuildAll();
+          rebuildIndex();
         },
         error: (err) => console.error("Error cargando CSV:", err)
       });
     });
 
-    document.getElementById("offset-hours").addEventListener("input", (e) => {
-      offsetHours = Number(e.target.value) || 0;
-      rebuildAll();
-    });
-
-    function rebuildAll() {
+    function rebuildIndex() {
       buildOrderMap();
-      buildIndex();
+      buildDaysIndex();
       renderDaySelector();
     }
 
+    // 1) DEDUPE: un solo registro por pedido (por ID normalizado) usando fecha más temprana
     function buildOrderMap() {
       ORDER_MAP = new Map();
       for (const r of RAW_ROWS) {
-        const rawDt = r[MAP.dateTime];
         const rawId = cleanId(r[MAP.orderId]);
-        if (!rawDt || !rawId) continue;
-        const dt = applyOffset(rawDt);
-        if (!dt) continue;
+        const rawDate = r[MAP.dateTime];
+        if (!rawId || !rawDate) continue;
+        const day = getDayFromRaw(rawDate);
+        const hour = getHourFromRaw(rawDate);
+        if (!day || !hour) continue;
+        const keyDateStr = `${day} ${hour}`; // para comparar lexicográficamente
+
         const prev = ORDER_MAP.get(rawId);
-        if (!prev || dt < prev) ORDER_MAP.set(rawId, dt);
+        if (!prev || keyDateStr < prev.key) {
+          ORDER_MAP.set(rawId, { key: keyDateStr, raw: rawDate });
+        }
       }
     }
 
-    function buildIndex() {
+    // 2) ÍNDICE día × hora usando solo ORDER_MAP (ya deduplicado)
+    function buildDaysIndex() {
       DAYS = {};
-      for (const [id, dt] of ORDER_MAP.entries()) {
-        const dk = dateKey(dt);
-        const hk = hourKey(dt);
-        DAYS[dk] ??= {};
-        DAYS[dk][hk] ??= new Set();
-        DAYS[dk][hk].add(id);
+      for (const [id, obj] of ORDER_MAP.entries()) {
+        const day = getDayFromRaw(obj.raw);
+        const hour = getHourFromRaw(obj.raw);
+        if (!day || !hour) continue;
+        if (!DAYS[day]) DAYS[day] = {};
+        if (!DAYS[day][hour]) DAYS[day][hour] = new Set();
+        DAYS[day][hour].add(id);
       }
     }
 
+    // 3) Selector de día
     function renderDaySelector() {
       const sel = document.getElementById("day-select");
-      const days = Object.keys(DAYS).sort();
+      const days = Object.keys(DAYS).sort(); // YYYY-MM-DD
       sel.innerHTML = days.map(d => `<option value="${d}">${toDM(d)} (${d})</option>`).join("");
       if (!days.length) return;
       if (!sel.value || !DAYS[sel.value]) sel.value = days[days.length - 1];
@@ -182,52 +178,84 @@
       sel.onchange = () => renderDay(sel.value);
     }
 
-    let chartAccum, chartDelta;
+    // 4) Render del día (tabla + gráficos)
     function renderDay(dateISO) {
       const tbody = document.querySelector("#hour-table tbody");
       tbody.innerHTML = "";
-      const hours = [...Array(24).keys()].map(h => String(h).padStart(2,"0"));
-      const totals = [], deltas = [];
-      let acc = 0, prev = 0;
+
+      const hours = [...Array(24).keys()].map(h => String(h).padStart(2, "0"));
+      const totals = [];
+      const deltas = [];
+      let acc = 0;
+      let prev = 0;
 
       for (const h of hours) {
-        const count = DAYS[dateISO]?.[h]?.size || 0;
+        const count = dateISO && DAYS[dateISO] && DAYS[dateISO][h]
+          ? DAYS[dateISO][h].size
+          : 0;
         acc += count;
         const diff = acc - prev;
         prev = acc;
+
         totals.push(acc);
         deltas.push(diff);
+
         const cls = diff > 0 ? "plus" : diff < 0 ? "minus" : "";
         const sign = diff > 0 ? "+" : "";
-        tbody.insertAdjacentHTML("beforeend",
-          `<tr><td>${h}:00</td><td>${acc}</td><td class="delta ${cls}">${sign}${diff}</td></tr>`);
+        tbody.insertAdjacentHTML(
+          "beforeend",
+          `<tr>
+             <td>${h}:00</td>
+             <td>${acc}</td>
+             <td class="delta ${cls}">${sign}${diff}</td>
+           </tr>`
+        );
       }
 
-      const labels = hours.map(h => h+":00");
+      const labels = hours.map(h => h + ":00");
+
       if (chartAccum) chartAccum.destroy();
       if (chartDelta) chartDelta.destroy();
 
       chartAccum = new Chart(document.getElementById("chartAccum"), {
         type: "line",
-        data: { labels, datasets: [{
-          label: "Pedidos acumulados",
-          data: totals,
-          borderColor: "#4fa3ff",
-          backgroundColor: "rgba(79,163,255,0.15)",
-          fill: true,
-          tension: 0.25
-        }]},
-        options: { responsive:true, maintainAspectRatio:false, scales:{ y:{ ticks:{ precision:0 }}} }
+        data: {
+          labels,
+          datasets: [{
+            label: "Pedidos acumulados",
+            data: totals,
+            borderColor: "#4fa3ff",
+            backgroundColor: "rgba(79,163,255,0.15)",
+            fill: true,
+            tension: 0.25
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { y: { ticks: { precision: 0 } } },
+          plugins: { legend: { display: false } }
+        }
       });
 
       chartDelta = new Chart(document.getElementById("chartDelta"), {
         type: "bar",
-        data: { labels, datasets: [{
-          label: "Incremento por hora",
-          data: deltas,
-          backgroundColor: deltas.map(v => v>0 ? "#5ff97c" : (v<0 ? "#ff6f6f" : "#777"))
-        }]},
-        options: { responsive:true, maintainAspectRatio:false, scales:{ y:{ ticks:{ precision:0 }}} }
+        data: {
+          labels,
+          datasets: [{
+            label: "Incremento por hora",
+            data: deltas,
+            backgroundColor: deltas.map(v =>
+              v > 0 ? "#5ff97c" : (v < 0 ? "#ff6f6f" : "#777")
+            )
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { y: { ticks: { precision: 0 } } },
+          plugins: { legend: { display: false } }
+        }
       });
     }
   </script>
