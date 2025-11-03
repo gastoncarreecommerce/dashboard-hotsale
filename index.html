@@ -3,249 +3,132 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Pedidos por día y hora</title>
+  <title>HotSale - Pedidos acumulados hora a hora</title>
 
-  <!-- Chart.js & PapaParse desde CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <style>
-    :root { color-scheme: light dark; --bg:#0b0b0c; --card:#131416; --text:#f8f8f8; --muted:#aaa; --border:#2a2a2a; }
-    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif; background:var(--bg); color:var(--text); }
-    .wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
-    h1 { margin: 0 0 12px; font-size: 20px; }
-    .card { background: var(--card); border:1px solid var(--border); border-radius: 14px; padding: 14px; }
-    .grid { display:grid; gap:12px; }
+    :root { color-scheme: light dark; --bg:#0b0b0c; --card:#151618; --text:#f8f8f8; --muted:#999; --accent:#4fa3ff; }
+    body { margin:0; font-family: "Inter", system-ui, -apple-system, sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    select { background: var(--card); border: 1px solid #333; color: var(--text); padding: 6px 10px; border-radius: 8px; }
+    .grid { display:grid; gap:16px; }
     .g-2 { grid-template-columns: 1fr 1fr; }
-    label { font-size: 12px; color: var(--muted); display:block; margin-bottom:6px; }
-    select, input[type="text"], input[type="file"] {
-      width: 100%; padding: 8px 10px; border-radius: 10px; background: transparent; color: var(--text);
-      border:1px solid var(--border);
-    }
-    table { width:100%; border-collapse: collapse; font-size: 14px; }
-    th, td { padding: 8px 0; border-top:1px solid var(--border); }
+    .card { background: var(--card); border-radius: 16px; padding: 18px; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+    .muted { color:var(--muted); font-size:13px; }
+    table { width:100%; border-collapse: collapse; font-size:14px; margin-top:8px; }
+    th, td { padding: 6px 0; border-top:1px solid rgba(255,255,255,.08); }
     th { text-align:left; color:var(--muted); font-weight:600; }
-    .row { display:flex; gap:10px; align-items: center; }
-    .muted { color:var(--muted); font-size:12px; }
-    .highlight { background: rgba(255,255,255,.06); }
-    canvas { width:100% !important; height: 360px !important; }
+    td.delta.plus { color:#5ff97c; }
+    td.delta.minus { color:#ff6f6f; }
+    canvas { width:100%!important; height:350px!important; }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Pedidos por día × hora</h1>
+    <h1>📊 HotSale - Pedidos acumulados hora a hora</h1>
+
+    <div style="margin-bottom:16px">
+      <label>Seleccioná día:</label>
+      <select id="day-select"><option value="">—</option></select>
+    </div>
 
     <div class="grid g-2">
       <div class="card">
-        <label>Subí tu CSV (delimitador “;”)</label>
-        <input id="file" type="file" accept=".csv"/>
-        <div class="muted" style="margin-top:6px">
-          Columnas mínimas: <code>Creation Date</code> (fecha), <code>Order</code> (id de pedido). Si tus nombres difieren, editá el mapeo:
-        </div>
-        <div class="row" style="margin-top:8px">
-          <div style="flex:1">
-            <label>Columna fecha/hora</label>
-            <input id="map-date" type="text" value="Creation Date">
-          </div>
-          <div style="flex:1">
-            <label>Columna id pedido</label>
-            <input id="map-order" type="text" value="Order">
-          </div>
-        </div>
+        <h3 style="margin-top:0">Pedidos acumulados</h3>
+        <canvas id="chartAccum"></canvas>
       </div>
-
       <div class="card">
-        <label>Elegí un día</label>
-        <select id="day-select"><option value="">—</option></select>
-
-        <div class="row" style="margin-top:10px">
-          <div style="flex:1">
-            <label>Buscar puntual (dd/mm hh)</label>
-            <input id="query" type="text" placeholder="ej: 13/08 11">
-          </div>
-          <div style="flex:1">
-            <div class="muted">Ejemplo: “13/08 11” → muestra pedidos a las 11:00 del 13/08.</div>
-          </div>
-        </div>
+        <h3 style="margin-top:0">Incremento por hora</h3>
+        <canvas id="chartDelta"></canvas>
       </div>
     </div>
 
-    <div class="grid g-2" style="margin-top:12px">
-      <div class="card">
-        <div style="font-weight:600; margin-bottom:8px">Pedidos por hora (día seleccionado)</div>
-        <canvas id="chart"></canvas>
-      </div>
-      <div class="card">
-        <div style="font-weight:600; margin-bottom:8px">Tabla 24 horas</div>
-        <table id="hour-table">
-          <thead><tr><th>Hora</th><th>Pedidos</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
+    <div class="card" style="margin-top:16px">
+      <h3 style="margin-top:0">Detalle hora a hora</h3>
+      <table id="hour-table">
+        <thead>
+          <tr><th>Hora</th><th>Pedidos acumulados</th><th>Variación vs. hora anterior</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="muted" style="margin-top:6px">Zona horaria: America/Argentina/Buenos_Aires</div>
     </div>
-
-    <p class="muted" style="margin-top:10px">Zona horaria usada: America/Argentina/Buenos_Aires (todo se calcula en tu navegador).</p>
   </div>
 
   <script>
-    // ------- Utilidades -------
     const TZ = "America/Argentina/Buenos_Aires";
-
-    // retorna "YYYY-MM-DD" en TZ AR
-    function dateKey(dateStr) {
-      const d = new Date(dateStr);
-      const parts = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year:"numeric", month:"2-digit", day:"2-digit" }).formatToParts(d);
-      const obj = Object.fromEntries(parts.map(p=>[p.type,p.value]));
-      return `${obj.year}-${obj.month}-${obj.day}`;
-    }
-    // retorna "HH" 00..23 en TZ AR
-    function hourKey(dateStr) {
-      const d = new Date(dateStr);
-      const parts = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, hour:"2-digit", hour12:false }).formatToParts(d);
-      const obj = Object.fromEntries(parts.map(p=>[p.type,p.value]));
-      return obj.hour; // "00".."23"
-    }
-    // helper para mostrar dd/mm
-    function toDM(dateISO) {
-      const [y,m,d] = dateISO.split("-");
-      return `${d}/${m}`;
-    }
-
-    // ------- Estado -------
-    let RAW_ROWS = [];
     const MAP = { dateTime: "Creation Date", orderId: "Order" };
-    // Índice: days["YYYY-MM-DD"] = [ Set por hora 00..23 con orderIds ]
-    let DAYS = {}; // { [dateISO]: { [hour]: Set<orderId> } }
+    let RAW_ROWS = [];
+    let DAYS = {};
 
-    // ------- Parser CSV -------
-    document.getElementById("file").addEventListener("change", (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      Papa.parse(file, {
-        header: true,
-        delimiter: ";",
-        skipEmptyLines: true,
-        dynamicTyping: false, // id pedido como string
-        complete: (res) => { RAW_ROWS = res.data; buildIndex(); },
-        error: (err) => alert("Error leyendo CSV: " + err),
+    const dateKey = d => {
+      const parts = new Intl.DateTimeFormat("en-CA",{ timeZone:TZ, year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(d));
+      const o = Object.fromEntries(parts.map(p=>[p.type,p.value]));
+      return `${o.year}-${o.month}-${o.day}`;
+    };
+    const hourKey = d => {
+      const parts = new Intl.DateTimeFormat("en-CA",{ timeZone:TZ, hour:"2-digit", hour12:false}).formatToParts(new Date(d));
+      return Object.fromEntries(parts.map(p=>[p.type,p.value])).hour;
+    };
+    const toDM = iso => { const [y,m,d]=iso.split("-"); return `${d}/${m}`; };
+
+    // Carga automática del CSV desde /data/hotsale.csv
+    window.addEventListener("DOMContentLoaded", ()=>{
+      Papa.parse("/data/hotsale.csv", {
+        download:true, header:true, delimiter:";", skipEmptyLines:true,
+        complete:(res)=>{ RAW_ROWS=res.data; buildIndex(); },
+        error:(err)=>console.error("Error cargando CSV:",err)
       });
     });
 
-    // ------- Mapeo editable -------
-    document.getElementById("map-date").addEventListener("input", (e)=>{ MAP.dateTime = e.target.value; buildIndex(); });
-    document.getElementById("map-order").addEventListener("input", (e)=>{ MAP.orderId  = e.target.value; buildIndex(); });
-
-    // ------- Construcción del índice día×hora con pedidos únicos -------
-    function buildIndex() {
-      DAYS = {};
-      if (!RAW_ROWS.length || !MAP.dateTime || !MAP.orderId) { renderDaySelect([]); renderDay(null); return; }
-
-      for (const r of RAW_ROWS) {
-        const dt = r[MAP.dateTime];
-        const id = (r[MAP.orderId] ?? "").toString().trim();
-        if (!dt || !id) continue;
-
-        const dk = dateKey(dt);   // "YYYY-MM-DD"
-        const hk = hourKey(dt);   // "00".."23"
-
-        if (!DAYS[dk]) DAYS[dk] = {};
-        if (!DAYS[dk][hk]) DAYS[dk][hk] = new Set();
-        DAYS[dk][hk].add(id);
+    function buildIndex(){
+      DAYS={};
+      for(const r of RAW_ROWS){
+        const dt=r[MAP.dateTime], id=(r[MAP.orderId]??"").toString().trim();
+        if(!dt||!id)continue;
+        const dk=dateKey(dt), hk=hourKey(dt);
+        DAYS[dk] ??= {}; DAYS[dk][hk] ??= new Set(); DAYS[dk][hk].add(id);
       }
-
-      const dayList = Object.keys(DAYS).sort(); // creciente
-      renderDaySelect(dayList);
-      // si no hay selección, elegir el último día (más reciente)
-      if (dayList.length) {
-        const current = document.getElementById("day-select").value || dayList[dayList.length-1];
-        document.getElementById("day-select").value = current;
-        renderDay(current);
-      } else {
-        renderDay(null);
-      }
+      const list=Object.keys(DAYS).sort();
+      const sel=document.getElementById("day-select");
+      sel.innerHTML=list.map(d=>`<option value="${d}">${toDM(d)}</option>`).join("");
+      if(list.length){ sel.value=list[list.length-1]; renderDay(sel.value); }
+      sel.onchange=()=> renderDay(sel.value);
     }
 
-    // ------- Selector de día -------
-    function renderDaySelect(days) {
-      const sel = document.getElementById("day-select");
-      sel.innerHTML = '<option value="">—</option>' + days.map(d=>`<option value="${d}">${toDM(d)} (${d})</option>`).join("");
-    }
-    document.getElementById("day-select").addEventListener("change", (e)=>{
-      renderDay(e.target.value || null);
-    });
+    let chart1, chart2;
+    function renderDay(dateISO){
+      const table=document.querySelector("#hour-table tbody");
+      table.innerHTML="";
+      const hours=[...Array(24).keys()].map(h=>String(h).padStart(2,"0"));
+      const totals=[], deltas=[];
+      let acc=0, prev=0;
 
-    // ------- Gráfico y tabla por día -------
-    let chart;
-    function renderDay(dateISO) {
-      // tabla
-      const tbody = document.querySelector("#hour-table tbody");
-      tbody.innerHTML = "";
-
-      let labels = [], data = [];
-      if (dateISO && DAYS[dateISO]) {
-        for (let h=0; h<24; h++) {
-          const hh = String(h).padStart(2,"0");
-          const count = DAYS[dateISO][hh] ? DAYS[dateISO][hh].size : 0;
-          labels.push(`${hh}:00`);
-          data.push(count);
-          const tr = document.createElement("tr");
-          tr.dataset.hour = hh;
-          tr.innerHTML = `<td>${hh}:00</td><td>${count}</td>`;
-          tbody.appendChild(tr);
-        }
-      } else {
-        // vacío
-        for (let h=0; h<24; h++) {
-          const hh = String(h).padStart(2,"0");
-          const tr = document.createElement("tr");
-          tr.innerHTML = `<td>${hh}:00</td><td>0</td>`;
-          tbody.appendChild(tr);
-        }
+      for(const h of hours){
+        const count=DAYS[dateISO]?.[h]?.size||0;
+        acc+=count; 
+        const diff=acc-prev; prev=acc;
+        totals.push(acc); deltas.push(diff);
+        const td=`<td>${h}:00</td><td>${acc}</td><td class="delta ${diff>0?"plus":diff<0?"minus":""}">${diff>0?"+":""}${diff}</td>`;
+        table.insertAdjacentHTML("beforeend",`<tr>${td}</tr>`);
       }
 
-      const ctx = document.getElementById("chart");
-      if (chart) chart.destroy();
-      chart = new Chart(ctx, {
-        type: "bar",
-        data: { labels, datasets: [{ label: `Pedidos por hora ${dateISO ?? ""}`, data }] },
-        options: {
-          responsive: true, maintainAspectRatio:false,
-          scales: { y: { ticks: { precision: 0 } } },
-          onClick: (_, elems) => {
-            if (!elems.length) return;
-            const idx = elems[0].index;
-            const hour = String(idx).padStart(2,"0");
-            highlightRow(hour);
-          }
-        }
+      const labels=hours.map(h=>h+":00");
+      if(chart1)chart1.destroy(); if(chart2)chart2.destroy();
+      chart1=new Chart(document.getElementById("chartAccum"),{
+        type:"line",
+        data:{labels,datasets:[{label:"Acumulado",data:totals,borderColor:"#4fa3ff",tension:.3}]},
+        options:{responsive:true,maintainAspectRatio:false,scales:{y:{ticks:{precision:0}}}}
+      });
+      chart2=new Chart(document.getElementById("chartDelta"),{
+        type:"bar",
+        data:{labels,datasets:[{label:"Incremento",data:deltas,backgroundColor:"#5ff97c"}]},
+        options:{responsive:true,maintainAspectRatio:false,scales:{y:{ticks:{precision:0}}}}
       });
     }
-
-    function highlightRow(hour) {
-      document.querySelectorAll("#hour-table tbody tr").forEach(tr => tr.classList.remove("highlight"));
-      const row = document.querySelector(`#hour-table tbody tr[data-hour="${hour}"]`);
-      if (row) row.classList.add("highlight");
-    }
-
-    // ------- Buscador puntual “dd/mm hh” -------
-    document.getElementById("query").addEventListener("input", (e)=>{
-      const v = e.target.value.trim(); // ej "13/08 11"
-      const m = v.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2})$/);
-      if (!m) return;
-      const dd = m[1].padStart(2,"0"), mm = m[2].padStart(2,"0"), hh = m[3].padStart(2,"0");
-      // buscar en la lista de días un YYYY-mm-dd que coincida
-      const found = Object.keys(DAYS).find(iso => iso.endsWith(`-${mm}-${dd}`));
-      if (!found) return;
-      document.getElementById("day-select").value = found;
-      renderDay(found);
-      highlightRow(hh);
-      // opcional: mostrar toast simple
-      const count = DAYS[found][hh] ? DAYS[found][hh].size : 0;
-      console.log(`Pedidos el ${dd}/${mm} a las ${hh}:00 → ${count}`);
-    });
-
-    // Primer render vacío
-    renderDay(null);
   </script>
 </body>
 </html>
